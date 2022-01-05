@@ -1,1 +1,218 @@
+<style>
+#lcp-bars {
+  position: relative;
+}
+#lcp-bars > div {
+  position: relative;
+  height: 20px;
+  left: var(--left);
+  right: var(--right);
+  width:  calc(var(--right) - var(--left));
+  margin: 10px 0;
+  border: 1px solid #ccc;
+  white-space: nowrap;
+
+  --left: calc(100% * var(--start) / var(--width));
+  --right: calc(100% * var(--end) / var(--width));
+}
+.dns {
+  background-color: #007B87;
+  color: #fff;
+}
+.tcp {
+  background-color: #FF7B00;
+}
+.ssl {
+  background-color: #CF25DF;
+  color: #fff;
+}
+.srt {
+  background-color: #c9d5e8;
+}
+.load {
+  background-color: #91b7ea;
+}
+.img-srt {
+  background-color: #d1c4d9;
+}
+.img-load {
+  background-color: #b394cf;
+  color: #fff;
+}
+[timing]:after {
+  position: absolute;
+  content: attr(timing);
+  right: 0;
+}
+</style>
+
 <h1>LCP viewer</h1>
+
+<div id="lcp-bars"></div>
+
+<script>
+class Timing {
+  constructor(start, end) {
+    if (start == -1 || end == -1) {
+      return;
+    }
+
+    this.start = start;
+    this.end = end;
+    this.duration = end - start;
+  }
+}
+
+function getMedianRun(har) {
+  return har.data.median.firstView;
+}
+
+function getInitialRequest(run) {
+  return run.requests[0];
+}
+
+function getInitialRedirectChain(run) {
+  const i = run.requests.findIndex(r => r.is_base_page);
+  return run.requests.slice(0, i + 1);
+}
+
+
+function getTTFB(run) {
+  return new Timing(0, run.TTFB);
+}
+
+function getLCP(run) {
+  return new Timing(0, run['chromeUserTiming.LargestContentfulPaint']);
+}
+
+function getFCP(run) {
+  return new Timing(0, run['chromeUserTiming.firstContentfulPaint']);
+}
+
+function getFP(run) {
+  return new Timing(0, run['chromeUserTiming.firstPaint']);
+}
+
+function getLCPImageStats(run) {
+  const lcp = run.requests.find(r => r.full_url == run.LargestContentfulPaintImageURL);
+  if (!lcp) {
+    return;
+  }
+
+  const lcpTimings = {
+    element: lcp
+  };
+
+  const initialRequest = getInitialRequest(run);
+  let connection;
+
+  if (initialRequest.host != lcp.host) {
+    connection = run.requests.find(r => r.host == lcp.host && r.dns_start != -1);
+    lcpTimings.dns = getDNS(connection);
+
+    connection = run.requests.find(r => r.host == lcp.host && r.connect_start != -1);
+    lcpTimings.tcp = getTCP(connection);
+
+    connection = run.requests.find(r => r.host == lcp.host && r.ssl_start != -1);
+    lcpTimings.ssl = getSSL(connection);
+  }
+
+  lcpTimings.srt = getSRT(lcp);
+  lcpTimings.load = getLoad(lcp);
+
+  return lcpTimings;
+}
+
+function getDNS(req) {
+  return new Timing(req.dns_start, req.dns_end);
+}
+
+function getTCP(req) {
+  return new Timing(req.connect_start, req.connect_end);
+}
+
+function getSSL(req) {
+  return new Timing(req.ssl_start, req.ssl_end);
+}
+
+function getSRT(req) {
+  return new Timing(req.ttfb_start, req.ttfb_end);
+}
+
+function getLoad(req) {
+  return new Timing(req.download_start, req.download_end);
+}
+
+
+async function fetchHAR(wptID) {
+  const wpt = `https://webpagetest.org/jsonResult.php?test=${wptID}&pretty=1&medianMetric=chromeUserTiming.LargestContentfulPaint`;
+  return fetch(wpt);
+}
+
+function getWptID() {
+  const url = new URL(location.href);
+  return url.searchParams.get('id');
+}
+
+async function init() {
+  const wptID = getWptID();
+  if (!wptID) {
+    return;
+  }
+
+  const response = await fetchHAR(wptID);
+  const har = await response.json();
+
+  console.log('har', har);
+
+  const run = getMedianRun(har);
+
+  window.run = run;
+  console.log('run', run);
+
+  for (let req of getInitialRedirectChain(run)) {
+    drawTiming('DNS', 'dns', getDNS(req));
+    drawTiming('TCP', 'tcp', getTCP(req));
+    drawTiming('SSL', 'ssl', getSSL(req));
+    drawTiming('SRT', 'srt', getSRT(req));
+    drawTiming('Load', 'load', getLoad(req));
+  }
+  drawTiming('TTFB', 'ttfb', getTTFB(run));
+
+  const lcpImageStats = getLCPImageStats(run);
+  if (lcpImageStats) {
+    console.log('LCP Image', lcpImageStats);
+    drawTiming('Image DNS', 'dns', lcpImageStats.dns);
+    drawTiming('Image TCP', 'tcp', lcpImageStats.tcp);
+    drawTiming('Image SSL', 'ssl', lcpImageStats.ssl);
+    drawTiming('Image SRT', 'img-srt', lcpImageStats.srt);
+    drawTiming('Image load', 'img-load', lcpImageStats.load);
+  }
+  drawTiming('LCP', 'lcp', getLCP(run));
+}
+
+function drawTiming(title, className, timing) {
+  if (!timing || !timing.end) {
+    return;
+  }
+
+  console.log(title, timing);
+  const e = document.createElement('div');
+  e.className = className;
+  e.innerText = title;
+  e.style.setProperty('--start', timing.start);
+  e.style.setProperty('--end', timing.end);
+  e.style.setProperty('--timing', `${timing.end.toLocaleString()} ms`);
+  lcpBars.appendChild(e);
+
+  if (title == 'LCP') {
+    e.setAttribute('timing', e.style.getPropertyValue('--timing'));
+    lcpBars.style.setProperty('--width', timing.end);
+  } else if (title == 'TTFB') {
+    e.setAttribute('timing', e.style.getPropertyValue('--timing'));
+  }
+}
+
+const lcpBars = document.getElementById('lcp-bars');
+init();
+</script>

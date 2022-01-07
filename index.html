@@ -173,7 +173,7 @@ async function init() {
   for (let req of getInitialRedirectChain(run)) {
     drawTiming('DNS', 'dns', getDNS(req));
     drawTiming('TCP', 'tcp', getTCP(req));
-    drawTiming('SSL', 'ssl', getSSL(req));
+    drawTiming('TLS', 'ssl', getSSL(req));
     drawTiming('SRT', 'srt', getSRT(req));
     drawTiming('Load', 'load', getLoad(req));
   }
@@ -184,7 +184,7 @@ async function init() {
     console.log('LCP Image', lcpImageStats);
     drawTiming('Image DNS', 'dns', lcpImageStats.dns);
     drawTiming('Image TCP', 'tcp', lcpImageStats.tcp);
-    drawTiming('Image SSL', 'ssl', lcpImageStats.ssl);
+    drawTiming('Image TLS', 'ssl', lcpImageStats.ssl);
     drawTiming('Image SRT', 'img-srt', lcpImageStats.srt);
     drawTiming('Image load', 'img-load', lcpImageStats.load);
   }
